@@ -1,0 +1,150 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qe4pe"
+version = "0.1.0"
+description = "Quality Estimation for Post-Editing"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+keywords = ["machine translation", "quality estimation", "natural language processing", "interpretability"]
+authors = [
+  {name = "Gabriele Sarti", email = "gabriele.sarti996@gmail.com"},
+  {name = "Vilém Zouhar", email = "vilem.zouhar@gmail.com"}
+]
+maintainers = [
+  {name = "Gabriele Sarti", email = "gabriele.sarti996@gmail.com"}
+]
+# Pypi classifiers: https://pypi.org/classifiers/
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Framework :: Jupyter",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Typing :: Typed"
+]
+dependencies = [
+  "typer>=0.12.5",
+  "jiwer>=3",
+]
+
+[project.optional-dependencies]
+
+lint = [
+  "pre-commit>=2.19.0",
+  "pytest>=7.2.0",
+  "pytest-xdist>=3.5.0",
+  "ruff>=0.2.0"
+]
+notebook = [
+  "ipykernel>=6.29.2",
+  "ipywidgets>=8.1.2"
+]
+
+[project.urls]
+homepage = "https://github.com/gsarti/qe4pe"
+documentation = "https://TODO"
+repository = "https://github.com/gsarti/qe4pe"
+changelog = "https://github.com/gsarti/qe4pe/blob/main/CHANGELOG.md"
+
+[project.scripts]
+"intrinsic-qe" = "src.commands.cli:app"
+
+
+[tool.pytest.ini_options]
+# https://docs.pytest.org/en/6.2.x/customize.html#pyproject-toml
+# Directories that are not visited by pytest collector:
+testpaths = "tests"
+python_files = "test_*.py"
+norecursedirs =["hooks", "*.egg", ".eggs", "dist", "build", "docs", ".tox", ".git", "__pycache__"]
+doctest_optionflags = ["NUMBER", "NORMALIZE_WHITESPACE", "IGNORE_EXCEPTION_DETAIL"]
+addopts = [
+  "--strict-markers",
+  "--tb=short",
+  "--doctest-modules",
+  "--doctest-continue-on-failure",
+  "--disable-pytest-warnings",
+  "--color=yes"
+]
+
+
+[tool.setuptools]
+packages = ["src"]
+
+
+[tool.ruff]
+target-version = "py310"
+exclude = [
+  ".git",
+  ".vscode",
+  ".github",
+  "__pycache__",
+  "docs/source/conf.py",
+  "old",
+  "build",
+  "htmlcov",
+  "dev_examples",
+  "dist",
+  ".tox",
+  "temp",
+  "*.egg",
+  "venv",
+  ".venv",
+]
+fix = true
+line-length = 119
+src = ["qe4pe", "notebooks", "tests"]
+extend-include = ["*.ipynb"]
+
+[tool.ruff.lint]
+external = [
+  "DOC",  # pydoclint
+]
+ignore = [
+  "B006", # mutable default argument
+  "C901", # function too complex
+  "E501", # line too long (handled by format)
+  "E731", # do not assign a lambda expression, use a def
+  "E741", # ambiguous variable name
+  "F722", # syntax error in forward annotation (as used by jaxtyping)
+  "F821", # undefined name
+  "PLR2004", # unnamed numerical constants used
+  "PLR0913", # too many arguments
+  "PLR0915", # too many statements
+  "W191", # indentation contains tabs (handled by format)
+]
+select = [
+  "E", # pycodestyle errors
+  "F", # pyflakes
+  "W", # pycodestyle warnings
+  "C", # flake8-comprehensions
+  #"D", # flake8-docstrings
+  "B", # flake8-bugbear
+  "I", # isort
+  "UP", # flake8-pyupgrade
+  "PLC", # flake8-pylint
+  "PLE", # flake8-pylint
+  "PLR", # flake8-pylint
+  "PLW", # flake8-pylint
+]
+per-file-ignores = { "__init__.py" = ["F401"], "**/examples/*" = ["B018", "E402"] }
+isort = { known-first-party = ["qe4pe"], order-by-type = true}
+pylint = { max-branches = 22 }
+pyupgrade = { keep-runtime-typing = true }
+pydocstyle = { convention = "google" }
+
+
+[tool.pydoclint]
+style = 'google'
+exclude = '\.git|\.tox|tests/data|some_script\.py'
+require-return-section-when-returning-nothing = true
