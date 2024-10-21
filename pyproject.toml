@@ -58,7 +58,7 @@ repository = "https://github.com/gsarti/qe4pe"
 changelog = "https://github.com/gsarti/qe4pe/blob/main/CHANGELOG.md"
 
 [project.scripts]
-"intrinsic-qe" = "src.commands.cli:app"
+"qe4pe" = "src.commands.cli:app"
 
 
 [tool.pytest.ini_options]
