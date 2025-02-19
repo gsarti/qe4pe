@@ -1,0 +1,691 @@
+---
+title: "QE4PE Mixed-effects Modeling Experiments"
+author: "Gabriele Sarti"
+date: "Generation date: `r format(Sys.time(), '%b %d, %Y - %H:%M:%S')`"
+output: 
+  html_document:
+    toc: true
+    code_folding: show
+    toc_float: 
+        collapsed: false
+        smooth_scroll: true
+    number_sections: true
+---
+
+# Introduction
+
+This document contains the modeling experiments for the QE4PE paper.
+
+This is partially based on a previous analysis for the publications:
+
+> Toral, A., Wieling, M., and Way, A. (2018). Post-editing effort of a novel with statistical and neural machine translation. Frontiers in Digital Humanities.
+
+> Sarti, G., Bisazza, A., Guerberof-Arenas, A., Toral, A. (2022) DivEMT: Neural Machine Translation Post-Editing Effort Across Typologically Diverse Languages. Proceedings of EMNLP 2022.
+
+## Variables used
+
+### Fixed predictors
+
+1. Length of the MT sentence (characters better than words according to the 2018 paper)
+2. Proportion of highlighted contents
+3. Highlight modality
+4. Target language
+5. Document category
+
+### Random factors
+1. Subject ID
+2. Item ID (nested). Document / Segment
+
+### Dependent variables
+1. Editing time for the segment
+2. Proportion of edited characters
+3. Editing quality (est. by XCOMET, or separate analysis on the MQM subset)
+
+# Analysis
+
+## Load libraries and install required packages if not installed yet
+
+```{r message=FALSE}
+packages <- c(
+    "car", "effects", "ggplot2", "jtools", "lme4",
+    "lmerTest", "mgcv", "optimx", "tidyr", "glmmTMB",
+    "DHARMa", "performance", "dplyr", "MuMIn"
+)
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+    install.packages(
+        setdiff(packages, rownames(installed.packages())),
+        repos = "http://cran.us.r-project.org"
+    )
+}
+
+library(car)
+library(effects)
+library(ggplot2)
+library(jtools)
+library(lme4)
+library(mgcv)
+library(optimx)
+library(glmmTMB)
+library(tidyr)
+library(DHARMa)
+library(performance)
+library(dplyr)
+library(MuMIn)
+```
+
+## Load and process data
+```{r message=FALSE}
+main <- read.csv("~/Documents/projects/qe4pe/qe4pe/data/task/main/processed_main.csv")
+
+# Drop main entries with has_issues == TRUE
+main <- main[main$has_issue == "False", ]
+```
+
+```{r}
+bin_variable <- function(column, max_val, by_val) {
+    num_list <- seq(0, max_val, by = by_val)
+    breaks <- c(c(-Inf), num_list, c(Inf))
+    # val_list is a sequence from 0 to len(num_list) with step 1
+    val_list <- seq(1, length(breaks) - 1, by = 1)
+
+    # Convert all values between num_list[i] and num_list[i+1] to val_list[i]
+    return(as.numeric(cut(column, breaks = breaks, labels = val_list, right = TRUE, include.lowest = TRUE)))
+}
+
+preprocess <- function(df) {
+    # Factorize categorical variables
+    df$highlight_modality <- relevel(as.factor(df$highlight_modality), ref = "no_highlight")
+    df$tgt_lang <- relevel(as.factor(df$tgt_lang), ref = "nld")
+    df$wmt_category <- relevel(as.factor(df$wmt_category), ref = "biomedical")
+
+    df$translator_main_id <- as.factor(df$translator_main_id)
+    df$segment_id <- as.factor(df$segment_id)
+
+    # Add proportion of highlighted contents and edit ratio
+    df$minor_highlight_ratio <- df$num_minor_highlighted_chars / df$mt_num_chars
+    df$major_highlight_ratio <- df$num_major_highlighted_chars / df$mt_num_chars
+
+    # Discretize dependent variables
+    df$edit_ratio <- round((1 - (df$num_chars_unchanged / df$mt_num_chars)) * 100, 0)
+    df$segment_edit_time_binned <- bin_variable(df$segment_edit_time_filtered, 600, 5)
+
+    # Scale continuous predictors
+    df$highlight_ratio <- scale((df$num_minor_highlighted_chars + df$num_major_highlighted_chars) / df$mt_num_chars)
+    df$mt_num_chars <- scale(df$mt_num_chars, center = TRUE, scale = TRUE)
+    df$doc_edit_order <- scale(df$doc_edit_order, center = TRUE, scale = TRUE)
+
+    # Calculate XCOMET quality improvement
+    df$mt_xcomet_qe <- round(df$mt_xcomet_qe * 100, 0)
+    df$pe_xcomet_qe <- round(df$pe_xcomet_qe * 100, 0)
+    df$diff_xcomet_qe <- df$mt_xcomet_qe - df$pe_xcomet_qe
+
+    return(df)
+}
+main <- preprocess(main)
+```
+
+```{r}
+x <- main$segment_edit_time_filtered[main$segment_edit_time_filtered < 600]
+print(paste0(round(1 - (length(x) / length(main$segment_edit_time_filtered)), 2), " segments with edit time above ", 600))
+```
+
+```{r}
+par(mfrow = c(2, 2))
+hist(main$segment_edit_time_filtered)
+hist(main$edit_ratio)
+hist(main$diff_xcomet_qe)
+```
+
+```{r}
+# Visualize the binned data for edit times
+table(main$segment_edit_time_binned)
+par(mfrow = c(1, 1))
+ggplot(main, aes(x = segment_edit_time_binned)) +
+    geom_bar() +
+    xlab("Binned Segment Edit Time") +
+    ylab("Count") +
+    ggtitle("Distribution of Binned Dependent Variable") +
+    theme_minimal()
+```
+
+## Modeling editing time
+
+### Test different modeling strategies
+
+```{r}
+lmer_full <- lmer(
+    segment_edit_time_binned ~
+        mt_num_chars +
+        highlight_ratio +
+        tgt_lang +
+        wmt_category +
+        highlight_modality +
+        mt_xcomet_qe +
+        (highlight_modality * tgt_lang) +
+        (highlight_modality * wmt_category) +
+        (highlight_modality * highlight_ratio) +
+        (1 | doc_edit_order) +
+        (1 | translator_main_id) +
+        (1 | segment_id),
+    data = main,
+    REML = TRUE
+)
+
+# 2. Poisson Mixed-Effects Model
+poisson_model <- glmmTMB(
+    segment_edit_time_binned ~
+        mt_num_chars +
+        highlight_ratio +
+        tgt_lang +
+        wmt_category +
+        highlight_modality +
+        mt_xcomet_qe +
+        (highlight_modality * tgt_lang) +
+        (highlight_modality * wmt_category) +
+        (highlight_modality * highlight_ratio) +
+        (1 | doc_edit_order) +
+        (1 | translator_main_id) +
+        (1 | segment_id),
+    family = poisson(),
+    data = main
+)
+```
+
+```{r}
+# 3. Negative Binomial Mixed-Effects Model
+nb_model <- glmmTMB(
+    segment_edit_time_binned ~
+        mt_num_chars +
+        highlight_ratio +
+        tgt_lang +
+        wmt_category +
+        highlight_modality +
+        mt_xcomet_qe +
+        (highlight_modality * tgt_lang) +
+        (highlight_modality * wmt_category) +
+        (highlight_modality * highlight_ratio) +
+        (1 | doc_edit_order) +
+        (1 | translator_main_id) +
+        (1 | segment_id),
+    family = nbinom2(),
+    data = main
+)
+
+# 4. Zero-Inflated Poisson Model
+zip_model <- glmmTMB(
+    segment_edit_time_binned ~
+        mt_num_chars +
+        highlight_ratio +
+        tgt_lang +
+        wmt_category +
+        highlight_modality +
+        mt_xcomet_qe +
+        (highlight_modality * tgt_lang) +
+        (highlight_modality * wmt_category) +
+        (highlight_modality * highlight_ratio) +
+        (1 | doc_edit_order) +
+        (1 | translator_main_id) +
+        (1 | segment_id),
+    ziformula = ~translator_main_id,
+    family = poisson(),
+    data = main
+)
+```
+
+### Testing whether zero-inflation improves the model
+
+```{r}
+# 5. Zero-Inflated Poisson Model
+zinb_model <- glmmTMB(
+    segment_edit_time_binned ~
+        mt_num_chars +
+        highlight_ratio +
+        tgt_lang +
+        wmt_category +
+        highlight_modality +
+        mt_xcomet_qe +
+        (highlight_modality * tgt_lang) +
+        (highlight_modality * wmt_category) +
+        (highlight_modality * highlight_ratio) +
+        (1 | doc_edit_order) +
+        (1 | translator_main_id) +
+        (1 | segment_id),
+    ziformula = ~translator_main_id,
+    family = nbinom2(),
+    data = main
+)
+```
+
+```{r}
+# Model Comparison
+# 1. AIC and BIC Comparison
+model_comparison <- AIC(
+    lmer_full,
+    poisson_model,
+    nb_model,
+    zip_model,
+    zinb_model
+)
+print("AIC Comparison:")
+print(model_comparison)
+```
+
+### Model diagnostics
+
+```{r}
+summary(nb_model)
+simulationOutput <- simulateResiduals(fittedModel = zinb_model)
+
+# residuals are normally distributed
+plot(simulationOutput)
+```
+
+```{r}
+# no significant issue with the dispersion, residuals' variance is well modeled.
+testDispersion(simulationOutput)
+# no evident zero inflation
+testZeroInflation(simulationOutput)
+
+model_performance(zinb_model)
+
+# AIC       |      AICc |       BIC | R2 (cond.) | R2 (marg.) |   ICC |   RMSE
+#----------------------------------------------------------------------------
+# 55311.274 | 55311.577 | 55548.303 |      0.934 |      0.410 | 0.888 | 17.539
+
+# AIC       | Sigma | Score_log | Score_spherical
+#-----------------------------------------------
+# 55311.274 | 1.409 |    -3.889 |           0.008
+
+# High conditional R2 = good model, but the fixed effects alone explain only 41.3% of the variance.
+# Random effects play a critical role in the model, also shown by high ICC
+
+# RMSE 17.5 ~ avg. error of 85s in predicting editing times
+```
+
+```{r}
+# Get the predicted values for the zero-inflation component
+predicted_zeros_nb <- predict(nb_model, type = "response")
+predicted_zeros_zinb <- predict(zinb_model, type = "response")
+
+# Compare the distribution of the predicted and observed scores
+# Make 1x3 grid with fixed y-axis limits
+par(mfrow = c(1, 3), mar = c(4, 4, 2, 1))
+hist(predicted_zeros_nb, ylim = c(0, 5000))
+hist(predicted_zeros_zinb, ylim = c(0, 5000))
+hist(main$segment_edit_time_binned, ylim = c(0, 5000))
+```
+
+### Model without highlight modality
+
+```{r}
+nb_model_highlight_modality_onlyinter <- glmmTMB(
+    segment_edit_time_binned ~
+        mt_num_chars +
+        highlight_ratio +
+        tgt_lang +
+        wmt_category +
+        mt_xcomet_qe +
+        (highlight_modality * tgt_lang) +
+        (highlight_modality * wmt_category) +
+        (highlight_modality * highlight_ratio) +
+        (1 | doc_edit_order) +
+        (1 | translator_main_id) +
+        (1 | segment_id),
+    family = nbinom2(),
+    data = main
+)
+
+nb_model_no_highlight_modality <- glmmTMB(
+    segment_edit_time_binned ~
+        mt_num_chars +
+        highlight_ratio +
+        tgt_lang +
+        wmt_category +
+        mt_xcomet_qe +
+        (1 | doc_edit_order) +
+        (1 | translator_main_id) +
+        (1 | segment_id),
+    family = nbinom2(),
+    data = main
+)
+```
+```{r}
+nb_model_highlight_modality_nointer <- glmmTMB(
+    segment_edit_time_binned ~
+        mt_num_chars +
+        highlight_ratio +
+        tgt_lang +
+        wmt_category +
+        mt_xcomet_qe +
+        highlight_modality +
+        (1 | doc_edit_order) +
+        (1 | translator_main_id) +
+        (1 | segment_id),
+    family = nbinom2(),
+    data = main
+)
+```
+```{r}
+AIC(nb_model, nb_model_highlight_modality_nointer, nb_model_highlight_modality_onlyinter, nb_model_no_highlight_modality)
+anova(nb_model, nb_model_highlight_modality_nointer, nb_model_highlight_modality_onlyinter, nb_model_no_highlight_modality)
+```
+
+Models with `highlight_modality` as an interaction factor outperform those without it.
+Highlight modality contributes meaningfully only as an interaction factor with other predictors (target language and category).
+
+## Modeling edit ratio
+
+```{r}
+gauss_model <- glmmTMB(
+    edit_ratio ~
+        mt_num_chars +
+        highlight_ratio +
+        tgt_lang +
+        wmt_category +
+        highlight_modality +
+        mt_xcomet_qe +
+        (highlight_modality * tgt_lang) +
+        (highlight_modality * wmt_category) +
+        (highlight_modality * highlight_ratio) +
+        (1 | doc_edit_order) +
+        (1 | translator_main_id) +
+        (1 | segment_id),
+    family = gaussian(),
+    data = main
+)
+```
+
+```{r}
+cor(main %>% select(edit_ratio, mt_num_chars, highlight_ratio, mt_xcomet_qe))
+```
+
+```{r}
+# Best model found with dredge(zigauss_model, rank='AIC')
+zigauss_model <- glmmTMB(
+    edit_ratio ~
+        mt_num_chars +
+        highlight_ratio +
+        tgt_lang +
+        wmt_category +
+        highlight_modality +
+        (highlight_modality * tgt_lang) +
+        (highlight_modality * wmt_category) +
+        (highlight_modality * highlight_ratio) +
+        (1 | doc_edit_order) +
+        (1 | translator_main_id) +
+        (1 | doc_id / segment_id),
+    ziformula = ~ translator_main_id +
+        mt_num_chars +
+        tgt_lang +
+        wmt_category +
+        (tgt_lang * translator_main_id),
+    family = gaussian(),
+    data = main,
+    na.action = "na.fail"
+)
+```
+
+```{r}
+summary(zigauss_model)
+AIC(gauss_model, zigauss_model)
+
+#           df      AIC
+# gauss_model   21 60840.76
+# zigauss_model 49 54717.76
+
+# Zero-inflation is very significant for the edit ratio, as the AIC difference is substantial.
+
+simulationOutput <- simulateResiduals(fittedModel = zigauss_model)
+
+par(mfrow = c(1, 1))
+# residuals are normally distributed
+plot(simulationOutput)
+```
+
+```{r}
+par(mfrow = c(1, 2))
+# no significant issue with the dispersion, residuals' variance is well modeled.
+testDispersion(simulationOutput)
+```
+```{r}
+# Evident and well-modeled zero inflation
+testZeroInflation(simulationOutput)
+
+model_performance(zigauss_model)
+# AIC       |      AICc |       BIC | R2 (cond.) | R2 (marg.) |   ICC |   RMSE |  Sigma
+# -------------------------------------------------------------------------------------
+# 54717.760 | 54718.361 | 55052.389 |      0.979 |      0.511 | 0.956 | 10.882 | 10.155
+
+# RMSE 10.9 ~ avg. error of 11% editing rate
+```
+
+```{r}
+# Get the predicted values for the zero-inflation component
+predicted_zeros_gauss <- predict(gauss_model, type = "response")
+predicted_zeros_zigauss <- predict(zigauss_model, type = "response")
+
+# Compare the distribution of the predicted and observed scores
+# Make 1x3 grid with fixed y-axis limits
+par(mfrow = c(1, 3), mar = c(4, 4, 2, 1))
+hist(predicted_zeros_gauss)
+hist(predicted_zeros_zigauss)
+hist(main$edit_ratio)
+
+rmse_gauss <- sqrt(mean((predicted_zeros_gauss - main$edit_ratio)^2))
+rmse_zigauss <- sqrt(mean((predicted_zeros_zigauss - main$edit_ratio)^2))
+print(paste0("RMSE for GAUSS model: ", rmse_gauss))
+print(paste0("RMSE for ZIGAUSS model: ", rmse_zigauss))
+```
+
+### Test usefulness of highlight ratio in predicting edit ratio
+
+```{r}
+zigauss_model_highlight_ratio_onlyinter <- glmmTMB(
+    edit_ratio ~
+        mt_num_chars +
+        tgt_lang +
+        wmt_category +
+        highlight_modality +
+        (highlight_modality * tgt_lang) +
+        (highlight_modality * wmt_category) +
+        (highlight_modality * highlight_ratio) +
+        (1 | doc_edit_order) +
+        (1 | translator_main_id) +
+        (1 | doc_id / segment_id),
+    ziformula = ~ translator_main_id +
+        mt_num_chars +
+        tgt_lang +
+        wmt_category +
+        (tgt_lang * translator_main_id),
+    family = gaussian(),
+    data = main,
+    na.action = "na.fail"
+)
+```
+
+```{r}
+zigauss_model_highlight_ratio_nointer <- glmmTMB(
+    edit_ratio ~
+        mt_num_chars +
+        highlight_ratio +
+        tgt_lang +
+        wmt_category +
+        highlight_modality +
+        (highlight_modality * tgt_lang) +
+        (highlight_modality * wmt_category) +
+        (1 | doc_edit_order) +
+        (1 | translator_main_id) +
+        (1 | doc_id / segment_id),
+    ziformula = ~ translator_main_id +
+        mt_num_chars +
+        tgt_lang +
+        wmt_category +
+        (tgt_lang * translator_main_id),
+    family = gaussian(),
+    data = main,
+    na.action = "na.fail"
+)
+```
+
+```{r}
+zigauss_model_no_highlight_ratio <- glmmTMB(
+    edit_ratio ~
+        mt_num_chars +
+        tgt_lang +
+        wmt_category +
+        highlight_modality +
+        (highlight_modality * tgt_lang) +
+        (highlight_modality * wmt_category) +
+        (1 | doc_edit_order) +
+        (1 | translator_main_id) +
+        (1 | doc_id / segment_id),
+    ziformula = ~ translator_main_id +
+        mt_num_chars +
+        tgt_lang +
+        wmt_category +
+        (tgt_lang * translator_main_id),
+    family = gaussian(),
+    data = main,
+    na.action = "na.fail"
+)
+```
+
+```{r}
+AIC(zigauss_model, zigauss_model_highlight_ratio_onlyinter, zigauss_model_highlight_ratio_nointer, zigauss_model_no_highlight_ratio)
+anova(zigauss_model, zigauss_model_highlight_ratio_onlyinter, zigauss_model_highlight_ratio_nointer, zigauss_model_no_highlight_ratio)
+```
+
+Highlight ratio is a significant predictor of the edit ratio only when combined with highlight modalities.
+
+## Modeling XCOMET quality improvement
+
+```{r}
+gauss_model <- glmmTMB(
+    diff_xcomet_qe ~
+        mt_num_chars +
+        highlight_ratio +
+        tgt_lang +
+        wmt_category +
+        highlight_modality +
+        mt_xcomet_qe +
+        (highlight_modality * tgt_lang) +
+        (highlight_modality * wmt_category) +
+        (highlight_modality * highlight_ratio) +
+        (1 | doc_edit_order) +
+        (1 | translator_main_id) +
+        (1 | doc_id / segment_id),
+    family = gaussian(),
+    data = main,
+    na.action = "na.fail"
+)
+
+zigauss_model <- glmmTMB(
+    diff_xcomet_qe ~
+        mt_num_chars +
+        highlight_ratio +
+        tgt_lang +
+        wmt_category +
+        highlight_modality +
+        mt_xcomet_qe +
+        (highlight_modality * tgt_lang) +
+        (highlight_modality * wmt_category) +
+        (highlight_modality * highlight_ratio) +
+        (1 | doc_edit_order) +
+        (1 | translator_main_id) +
+        (1 | doc_id / segment_id),
+    ziformula = ~ translator_main_id +
+        mt_num_chars +
+        tgt_lang +
+        wmt_category +
+        (tgt_lang * translator_main_id),
+    family = gaussian(),
+    data = main,
+    na.action = "na.fail"
+)
+```
+
+```{r}
+summary(zigauss_model)
+AIC(gauss_model, zigauss_model)
+
+#           df      AIC
+# gauss_model   21 54675.80
+# zigauss_model 48 42370.97
+
+# Zero-inflation is very significant for the MT quality, as the AIC difference is substantial.
+
+simulationOutput <- simulateResiduals(fittedModel = zigauss_model)
+
+# residuals are normally distributed
+plot(simulationOutput)
+```
+
+
+```{r}
+par(mfrow = c(1, 2))
+# no significant issue with the dispersion, residuals' variance is well modeled.
+testDispersion(simulationOutput)
+```
+```{r}
+# Evident and well-modeled zero inflation
+testZeroInflation(simulationOutput)
+
+model_performance(zigauss_model)
+# AIC       |      AICc |       BIC | R2 (cond.) | R2 (marg.) |   ICC |   RMSE |  Sigma
+# -------------------------------------------------------------------------------------
+# 41581.044 | 41581.671 | 41922.645 |      0.905 |      0.531 | 0.797 | 6.911 | 8.253
+
+# RMSE 6.9 ~ avg. error of 7% quality improvement
+```
+
+```{r}
+# Get the predicted values for the zero-inflation component
+predicted_zeros_gauss <- predict(gauss_model, type = "response")
+predicted_zeros_zigauss <- predict(zigauss_model, type = "response")
+
+# Compare the distribution of the predicted and observed scores
+# Make 1x3 grid with fixed y-axis limits
+par(mfrow = c(1, 3), mar = c(4, 4, 2, 1))
+hist(predicted_zeros_gauss)
+hist(predicted_zeros_zigauss)
+hist(main$diff_xcomet_qe)
+
+rmse_gauss <- sqrt(mean((predicted_zeros_gauss - main$diff_xcomet_qe)^2))
+rmse_zigauss <- sqrt(mean((predicted_zeros_zigauss - main$diff_xcomet_qe)^2))
+print(paste0("RMSE for GAUSS model: ", rmse_gauss))
+print(paste0("RMSE for ZIGAUSS model: ", rmse_zigauss))
+```
+
+### Simplify model
+
+```{r}
+zigauss_model_simple <- glmmTMB(
+    diff_xcomet_qe ~
+        highlight_modality +
+        highlight_ratio +
+        tgt_lang +
+        mt_xcomet_qe +
+        (highlight_modality * highlight_ratio) +
+        (1 | doc_edit_order) +
+        (1 | translator_main_id) +
+        (1 | doc_id / segment_id),
+    ziformula = ~ translator_main_id +
+        mt_num_chars +
+        tgt_lang +
+        wmt_category +
+        (tgt_lang * translator_main_id),
+    family = gaussian(),
+    data = main,
+    na.action = "na.fail"
+)
+
+summary(zigauss_model_simple)
+AIC(zigauss_model, zigauss_model_simple)
+
+#                      df      AIC
+# zigauss_model        49 41581.04
+# zigauss_model_simple 41 41571.64
+```
+
+Text length and category are not significant predictors of the XCOMET quality improvement. The
+starting quality of the MT output is a significant predictor of the quality improvement.

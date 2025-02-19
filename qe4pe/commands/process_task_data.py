@@ -39,6 +39,10 @@ class QE4PEProcessedEntry:
     src_lang: str = field(default=None, metadata={"description": "The source language of the segment. For QE4PE, this is always English (eng)."})
     tgt_lang: str = field(default=None, metadata={"description": "The target language of the segment: either Italian (ita) or Dutch (nld)."})
     highlight_modality: str = field(default=None, metadata={"description": "The highlighting modality used for the segment. Values: no_highlight, oracle, supervised, unsupervised."})
+    has_issue: bool = field(default=False, metadata={"description": "If True, the segment has an issue and should be excluded from the analysis."})
+    issue_description: str = field(default=None, metadata={"description": "Description of the issue detected in the segment. Empty if has_issue is False."})
+    has_added_critical_error: bool = field(default=False, metadata={"description": "If True, a critical error was manually added to the MT output."})
+    critical_error_description: str = field(default=None, metadata={"description": "Description of the critical error added to the MT output. Empty if has_added_critical_error is False."})
 
     # Text statistics
     src_num_chars: int = field(default=None, metadata={"description": "Length of the source segment in number of characters."})
@@ -47,6 +51,10 @@ class QE4PEProcessedEntry:
     src_num_words: int = field(default=None, metadata={"description": "Length of the source segment in number of words."})
     mt_num_words: int = field(default=None, metadata={"description": "Length of the machine-translated segment in number of words."})
     pe_num_words: int = field(default=None, metadata={"description": "Length of the post-edited segment in number of words."})
+    num_minor_highlighted_chars: int = field(default=None, metadata={"description": "Number of characters highlighted as minor errors in the machine-translated text."})
+    num_major_highlighted_chars: int = field(default=None, metadata={"description": "Number of characters highlighted as major errors in the machine-translated text."})
+    num_minor_highlighted_words: int = field(default=None, metadata={"description": "Number of words highlighted as minor errors in the machine-translated text."})
+    num_major_highlighted_words: int = field(default=None, metadata={"description": "Number of words highlighted as major errors in the machine-translated text."})
 
     # Edits statistics
     num_words_insert: int = field(default=None, metadata={"description": "Number of post-editing insertions computed using jiwer."})
@@ -142,6 +150,24 @@ def visualize_alignment(out: jiwer.WordOutput | jiwer.CharacterOutput) -> str:
         lines[1] = lines[1].replace("HYP:", "PE:")
     return "\n".join(lines)
 
+def get_highlighted_counts(text: str) -> dict[str, int]:
+    """
+    Analyze text with minor and major tags, returning a dictionary with character count and word count for each tag type.
+
+    Args:
+        text (str): Input text with <minor> and <major> tags
+    """
+    result = {'minor': {'chars': 0, 'words': 0}, 'major': {'chars': 0, 'words': 0}}
+    minor_matches = re.findall(r'<minor>(.*?)</minor>', text)
+    major_matches = re.findall(r'<major>(.*?)</major>', text)
+    for match in minor_matches:
+        result['minor']['chars'] += len(match)
+        result['minor']['words'] += len(match.split())
+    for match in major_matches:
+        result['major']['chars'] += len(match)
+        result['major']['words'] += len(match.split())
+    return result
+
 
 def add_identification_info(
     entry: QE4PEProcessedEntry,
@@ -157,7 +183,9 @@ def add_identification_info(
     modality: str,
     wmt_doc_map: dict[str, str],
     wmt_doc_category_map: dict[str, str],
-    force_highlight_modality: str | None = None
+    force_highlight_modality: str | None = None,
+    entry_issue: dict[str, str | int] | None = None,
+    entry_critical_error: dict[str, str | int] | None = None,
 ) -> QE4PEProcessedEntry:
     entry.unit_id = f"qe4pe-{task_name}-{src_lang}-{tgt_lang}-{doc_id}-{segment_in_doc_id}-{current_translator_id}"
     entry.wmt_id = wmt_doc_map[f"doc{doc_id}"]
@@ -170,6 +198,18 @@ def add_identification_info(
     entry.src_lang = src_lang
     entry.tgt_lang = tgt_lang
     entry.highlight_modality = modality if force_highlight_modality is None else force_highlight_modality
+    if entry_issue is not None:
+        entry.has_issue = True
+        entry.issue_description = entry_issue["description"]
+    else:
+        entry.has_issue = False
+        entry.issue_description = None
+    if entry_critical_error is not None:
+        entry.has_added_critical_error = True
+        entry.critical_error_description = entry_critical_error["description"]
+    else:
+        entry.has_added_critical_error = False
+        entry.critical_error_description = None
     return entry
 
 
@@ -185,6 +225,11 @@ def add_data_stats(
     entry.src_num_words = len(src_text.split())
     entry.mt_num_words = len(mt_text.split())
     entry.pe_num_words = len(pe_text.split())
+    highlighted_counts = get_highlighted_counts(mt_text)
+    entry.num_minor_highlighted_chars = highlighted_counts["minor"]["chars"]
+    entry.num_major_highlighted_chars = highlighted_counts["major"]["chars"]
+    entry.num_minor_highlighted_words = highlighted_counts["minor"]["words"]
+    entry.num_major_highlighted_words = highlighted_counts["major"]["words"]
     return entry
 
 
@@ -423,11 +468,13 @@ def process_task_data(
     force_highlight_modality = task_config.get("force_highlight_modality", None)
     has_translators_pretask_ids = task_config.get("has_translators_pretask_ids", False)
     has_input_highlight_modality = task_config.get("has_input_highlight_modality", False)
+    entries_with_issues = task_config.get("entries_with_issues", [])
+    entries_with_added_critical_errors = task_config.get("entries_with_added_critical_errors", [])
     doc_id_map = os.path.join(task_folder_path, "doc_id_map.json")
     input_folder = os.path.join(task_folder_path, "inputs")
     output_folder = os.path.join(task_folder_path, "outputs")
-    input_directions = os.listdir(input_folder)
-    output_directions = os.listdir(output_folder)
+    input_directions = [f for f in os.listdir(input_folder) if not f.startswith('.')]
+    output_directions = [f for f in os.listdir(output_folder) if not f.startswith('.')]
     assert input_directions == output_directions, \
         f"Input and output translation directions do not match: {input_directions} != {output_directions}"
 
@@ -465,16 +512,6 @@ def process_task_data(
         split_fname = lambda f, pre, suf: f.lstrip(pre).rstrip(suf).split("_")  # noqa: E731
         doc_ids = sorted({int(split_fname(fname, file_prefix, input_file_suffix)[0]) for fname in input_files})
 
-        # Infer highlight modalities
-        highlight_modalities = []
-        first_file_no_modality_path = os.path.join(direction_input_folder, f"{file_prefix}{doc_ids[0]}{input_file_suffix}")
-
-        # If not found, then the files have modalities and we need to extract them
-        if not os.path.exists(first_file_no_modality_path):
-            highlight_modalities = sorted({"_".join(split_fname(fname, file_prefix, input_file_suffix)[1:]) for fname in input_files})
-        elif force_highlight_modality is not None:
-            highlight_modalities = [force_highlight_modality]
-
         # Extract translators identifiers
         translator_ids = sorted({"_".join(split_fname(fname, file_prefix, output_file_suffix)[1:]) for fname in output_files})
 
@@ -494,7 +531,12 @@ def process_task_data(
         for file_id, main_id, pre_id, modality in zip(translator_ids, translator_main_ids, translator_pre_ids, translator_modalities, strict=True):
             translator_log_fname = f"{task_name}_{src_lang}-{tgt_lang}_{file_id}_logs.csv"
             translator_log_path = os.path.join(direction_log_folder, translator_log_fname)
-            translator_log = pd.read_csv(translator_log_path)
+            try:
+                translator_log = pd.read_csv(translator_log_path)
+            except FileNotFoundError as err:
+                raise FileNotFoundError(f"Logs file not found: {translator_log_path}") from err
+            except pd.errors.ParserError as err:
+                raise pd.errors.ParserError(f"Error parsing logs file: {translator_log_path}") from err
             translator_log["time"] = pd.to_datetime(translator_log["time"])
             translator_metrics_fname = f"{task_name}_{src_lang}-{tgt_lang}_{file_id}_metrics.json"
             translator_metrics_path = os.path.join(direction_metrics_folder, translator_metrics_fname)
@@ -536,6 +578,16 @@ def process_task_data(
                 ordered_segments = [x+1 for x in list(dict.fromkeys(doc_logs["text_id"].dropna().astype(int).values))]
                 for segment_in_doc_id, (src_mt_text, pe_text) in enumerate(zip(doc_input, doc_output, strict=True), start=1):
                     src_text, mt_text = src_mt_text.split(" ||| ")
+                    entry_issue = None
+                    entry_critical_error = None
+                    for ei in entries_with_issues:
+                        if ei["doc_id"] == doc_id and ei["segment_in_doc_id"] == segment_in_doc_id:
+                            entry_issue = ei
+                            break
+                    for ece in entries_with_added_critical_errors:
+                        if ece["doc_id"] == doc_id and ece["segment_in_doc_id"] == segment_in_doc_id:
+                            entry_critical_error = ece
+                            break
                     entry = QE4PEProcessedEntry()
                     entry = add_identification_info(
                         entry=entry,
@@ -551,7 +603,9 @@ def process_task_data(
                         modality=modality,
                         wmt_doc_map=wmt_doc_map,
                         wmt_doc_category_map=wmt_doc_category_map,
-                        force_highlight_modality=force_highlight_modality
+                        force_highlight_modality=force_highlight_modality,
+                        entry_issue=entry_issue,
+                        entry_critical_error=entry_critical_error,
                     )
                     entry = add_data_stats(entry=entry, src_text=src_text, mt_text=mt_text, pe_text=pe_text)
                     align_words = jiwer.process_words(clean_tags(mt_text), pe_text)
@@ -579,6 +633,15 @@ def process_task_data(
 
     # Save processed entries to CSV
     df = pd.DataFrame([entry.__dict__ for entry in all_entries])
+
+    if "qa_path" in task_doc_config:
+        qa_path = os.path.join(task_folder_path, task_doc_config["qa_path"])
+        mqm_df = pd.read_csv(qa_path)
+        df = df.merge(
+            mqm_df,
+            on=['doc_id', 'segment_in_doc_id', 'tgt_lang', 'translator_main_id'],
+            how='left'
+        )
     df.to_csv(output_path, index=False)
     logger.info(f"Processed data saved to {output_path}")
     logger.info("Done!")
