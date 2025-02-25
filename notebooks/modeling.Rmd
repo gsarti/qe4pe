@@ -430,7 +430,7 @@ summary(zigauss_model)
 AIC(gauss_model, zigauss_model)
 
 #           df      AIC
-# gauss_model   21 60840.76
+# gauss_model   21 60760.32
 # zigauss_model 49 54717.76
 
 # Zero-inflation is very significant for the edit ratio, as the AIC difference is substantial.
@@ -456,7 +456,7 @@ model_performance(zigauss_model)
 # -------------------------------------------------------------------------------------
 # 54717.760 | 54718.361 | 55052.389 |      0.979 |      0.511 | 0.956 | 10.882 | 10.155
 
-# RMSE 10.9 ~ avg. error of 11% editing rate
+# RMSE 10.8 ~ avg. error of 11% editing rate
 ```
 
 ```{r}
