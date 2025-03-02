@@ -1,3 +1,4 @@
+"""Converts outputs and logs from a data/task folder into a processed CSV file."""
 import datetime
 import json
 import logging
