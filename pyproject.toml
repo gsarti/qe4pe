@@ -44,8 +44,6 @@ dependencies = [
 
 lint = [
   "pre-commit>=2.19.0",
-  "pytest>=7.2.0",
-  "pytest-xdist>=3.5.0",
   "ruff>=0.2.0"
 ]
 notebook = [
@@ -61,23 +59,6 @@ changelog = "https://github.com/gsarti/qe4pe/blob/main/CHANGELOG.md"
 
 [project.scripts]
 "qe4pe" = "qe4pe.commands.cli:app"
-
-
-[tool.pytest.ini_options]
-# https://docs.pytest.org/en/6.2.x/customize.html#pyproject-toml
-# Directories that are not visited by pytest collector:
-testpaths = "tests"
-python_files = "test_*.py"
-norecursedirs =["hooks", "*.egg", ".eggs", "dist", "build", "docs", ".tox", ".git", "__pycache__"]
-doctest_optionflags = ["NUMBER", "NORMALIZE_WHITESPACE", "IGNORE_EXCEPTION_DETAIL"]
-addopts = [
-  "--strict-markers",
-  "--tb=short",
-  "--doctest-modules",
-  "--doctest-continue-on-failure",
-  "--disable-pytest-warnings",
-  "--color=yes"
-]
 
 
 [tool.setuptools]

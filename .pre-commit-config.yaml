@@ -23,18 +23,3 @@ repos:
     hooks:
       - id: ruff-format
       - id: ruff
-
-  - repo: local
-    hooks:
-      - id: test
-        name: test
-        entry: make
-        args: ["test"]
-        language: system
-        pass_filenames: false
-      - id: clean
-        name: clean
-        entry: make
-        args: ["clean"]
-        language: system
-        pass_filenames: false

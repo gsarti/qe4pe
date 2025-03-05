@@ -61,12 +61,6 @@ fix-style:
 	$(PYTHON) -m ruff format --config pyproject.toml ./
 	$(PYTHON) -m ruff check --config pyproject.toml ./
 
-#* Linting
-.PHONY: test
-test:
-	$(PYTHON) -m pytest -n auto -c pyproject.toml -v
-
-
 #* Remove
 .PHONY: pycache-remove
 pycache-remove:
