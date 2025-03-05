@@ -37,11 +37,11 @@ Processed QE4PE logs for `pre`, `main` and `post` tags, MQM/ESA annotations and 
 
 The raw logfiles produced by our [🐮 GroTE](https://github.com/gsarti/grote) interface are available in the `task` folder in the same repository as the datasets. Refer to the [main QE4PE dataset readme](https://huggingface.co/datasets/gsarti/qe4pe) and readmes in each task folder for more details about the provided data.
 
-## Reproducing Our Processing Pipeline
+## Reproducing Our Processing Pipeline (⚠️ WIP)
 
 This section provides a step-by-step guide to reproduce the data processing and analysis steps for the QE4PE study.
 
-**IMPORTANT:** While we describe how to regenerate all outputs we used for our analysis, they are all pre-computed and available in the [🤗 Datasets](https://huggingface.co/datasets/gsarti/qe4pe) repository.
+**IMPORTANT:** While we describe how to regenerate all outputs we used for our analysis, they are all pre-computed and available in the [🤗 Datasets](https://huggingface.co/datasets/gsarti/qe4pe) repository. We are adding the scripts little by little, please be patient and reach out if needed! 🤗
 
 ### 1. Setup
 
