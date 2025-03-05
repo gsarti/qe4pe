@@ -3,8 +3,8 @@
 [Gabriele Sarti](https://gsarti.com) • [Vilém Zouhar](https://vilda.net/) •  [Grzegorz Chrupała](https://grzegorz.chrupala.me/) • [Ana Guerberof Arenas](https://scholar.google.com/citations?user=i6bqaTsAAAAJ) • [Malvina Nissim](https://malvinanissim.github.io/) • [Arianna Bisazza](https://www.cs.rug.nl/~bisazza/)
 
 <p float="left">
-    <img src="figures/highlevel_qe4pe.png" alt="QE4PE annotation pipeline" width="300"/>
-    <img src="figures/quality_edited.png" alt="DivEMT annotation pipeline" width="500"/>
+    <img src="figures/highlevel_qe4pe.png" alt="QE4PE annotation pipeline" width="350"/>
+    <img src="figures/quality_edited.png" alt="DivEMT annotation pipeline" width="400"/>
 </p>
 
 > **Abstract:** Word-level quality estimation (QE) detects erroneous spans in machine translations, which can direct and facilitate human post-editing. While the accuracy of word-level QE systems has been assessed extensively, their usability and downstream influence on the speed, quality and editing choices of human post-editing remain understudied. Our QE4PE study investigates the impact of word-level QE on machine translation (MT) post-editing in a realistic setting involving 42 professional post-editors across two translation directions. We compare four error-span highlight modalities, including supervised and uncertainty-based word-level QE methods, for identifying potential errors in the outputs of a state-of-the-art neural MT model. Post-editing effort and productivity are estimated by behavioral logs, while quality improvements are assessed by word- and segment-level human annotation. We find that domain, language and editors' speed are critical factors in determining highlights' effectiveness, with modest differences between human-made and automated QE highlights underlining a gap between accuracy and usability in professional workflows.
