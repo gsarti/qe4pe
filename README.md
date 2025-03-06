@@ -9,16 +9,17 @@
 
 > **Abstract:** Word-level quality estimation (QE) detects erroneous spans in machine translations, which can direct and facilitate human post-editing. While the accuracy of word-level QE systems has been assessed extensively, their usability and downstream influence on the speed, quality and editing choices of human post-editing remain understudied. Our QE4PE study investigates the impact of word-level QE on machine translation (MT) post-editing in a realistic setting involving 42 professional post-editors across two translation directions. We compare four error-span highlight modalities, including supervised and uncertainty-based word-level QE methods, for identifying potential errors in the outputs of a state-of-the-art neural MT model. Post-editing effort and productivity are estimated by behavioral logs, while quality improvements are assessed by word- and segment-level human annotation. We find that domain, language and editors' speed are critical factors in determining highlights' effectiveness, with modest differences between human-made and automated QE highlights underlining a gap between accuracy and usability in professional workflows.
 
-This repository contains data, scripts and notebooks associated to the paper ["QE4PE: Word-level Quality Estimation for Human Post-Editing"](TODO). If you use any of the following contents for your work, we kindly ask you to cite our paper:
+This repository contains data, scripts and notebooks associated to the paper ["QE4PE: Word-level Quality Estimation for Human Post-Editing"](https://arxiv.org/abs/2503.03044). If you use any of the following contents for your work, we kindly ask you to cite our paper:
 
 ```bibtex
-@article{sarti-etal-2024-qe4pe,
-    title = "{QE4PE}: Word-level Quality Estimation for Human Post-Editing",
-    author = "Sarti, Gabriele and Zouhar, Vil{\'e}m and Chrupa{\l}a, Grzegorz and Nissim, Malvina and Bisazza, Arianna",
-    journal = "Arxiv preprint",
-    month = mar,
-    year = "2024",
-    url = "TODO",
+@misc{sarti-etal-2024-qe4pe,
+      title={{QE4PE}: Word-level Quality Estimation for Human Post-Editing}, 
+      author={Gabriele Sarti and Vilém Zouhar and Grzegorz Chrupała and Ana Guerberof-Arenas and Malvina Nissim and Arianna Bisazza},
+      year={2025},
+      eprint={2503.03044},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2503.03044}, 
 }
 ```
 
